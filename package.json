@@ -4,6 +4,7 @@
   "description": "Sistema de recomendação de leitura utilizando OrientDB (banco de dados NoSQL multi-modelo)",
   "main": "app.js",
   "scripts": {
+    "dev": "nodemon app.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
