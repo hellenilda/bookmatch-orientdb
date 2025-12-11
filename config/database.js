@@ -13,7 +13,8 @@ class Database {
                 host: process.env.DB_HOST || 'localhost',
                 port: process.env.DB_PORT || 2424,
                 username: process.env.DB_USER || 'root',
-                password: process.env.DB_PASSWORD || 'root'
+                password: process.env.DB_PASSWORD || 'root',
+                useToken: true
             });
 
             // Criar ou conecta ao banco
@@ -32,7 +33,8 @@ class Database {
             this.db = this.server.use({
                 name: dbName,
                 username: process.env.DB_USER || 'root',
-                password: process.env.DB_PASSWORD || 'root'
+                password: process.env.DB_PASSWORD || 'root',
+                useToken: true
             });
 
             console.log('✅ Conectado');
