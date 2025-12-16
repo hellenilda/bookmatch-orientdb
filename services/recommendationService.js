@@ -5,7 +5,7 @@ class RecommendationService {
     async generateRecommendations(userId, limit = 10) {
         try {
             // Consulta complexa no grafo
-            const recommendations = await db.db.query(
+            const recommendations = await db.query(
                 `LET $userId = :userId
                  
                  -- 1. Encontrar o usuário
@@ -94,7 +94,7 @@ class RecommendationService {
 
     // Método mais simples para demonstração
     async simpleRecommendations(userId, limit = 5) {
-        return await db.db.query(
+        return await db.query(
             `SELECT 
                 title,
                 author,
@@ -134,10 +134,10 @@ class RecommendationService {
         await db.db.command('DELETE EDGE SIMILAR_TO').all();
         
         // 2. Para cada livro, encontrar 5 similares
-        const allBooks = await db.db.query('SELECT @rid, isbn FROM Book').all();
+        const allBooks = await db.query('SELECT @rid, isbn FROM Book').all();
         
         for (const book of allBooks) {
-            const similar = await db.db.query(
+            const similar = await db.query(
                 `SELECT 
                     @rid as similarId,
                     (
@@ -191,7 +191,7 @@ class RecommendationService {
     }
 
     async getBookGenres(bookId) {
-        const result = await db.db.query(
+        const result = await db.query(
             'SELECT name FROM (SELECT expand(out("BELONGS_TO")) FROM :bookId)',
             { params: { bookId } }
         ).all();
@@ -199,7 +199,7 @@ class RecommendationService {
     }
 
     async getBookPopularity(bookId) {
-        return await db.db.query(
+        return await db.query(
             'SELECT in("RATED").size() FROM :bookId',
             { params: { bookId } }
         ).scalar() || 0;
