@@ -2,12 +2,11 @@ const UserModel = require('../models/UserModel');
 const recommendationService = require('../services/recommendationService');
 const db = require('../config/database');
 
-const userModel = new UserModel(db.db);
-
 class UserController {
     // POST /api/users
     async createUser(req, res) {
         try {
+            const userModel = new UserModel(db);
             const userData = {
                 userId: req.body.userId,
                 name: req.body.name,
@@ -37,6 +36,7 @@ class UserController {
     // GET /api/users/:userId
     async getUser(req, res) {
         try {
+            const userModel = new UserModel(db);
             const user = await userModel.findByUserId(req.params.userId);
             
             if (!user) {
@@ -63,6 +63,7 @@ class UserController {
     // GET /api/users
     async listUsers(req, res) {
         try {
+            const userModel = new UserModel(db);
             const page = parseInt(req.query.page) || 1;
             const limit = parseInt(req.query.limit) || 10;
             
@@ -86,6 +87,7 @@ class UserController {
     // PUT /api/users/:userId
     async updateUser(req, res) {
         try {
+            const userModel = new UserModel(db);
             const result = await userModel.update(req.params.userId, req.body);
             res.json(result);
         } catch (error) {
@@ -100,6 +102,7 @@ class UserController {
     // DELETE /api/users/:userId
     async deleteUser(req, res) {
         try {
+            const userModel = new UserModel(db);
             const result = await userModel.delete(req.params.userId);
             res.json(result);
         } catch (error) {
@@ -114,6 +117,7 @@ class UserController {
     // POST /api/users/:userId/rate/:isbn
     async rateBook(req, res) {
         try {
+            const userModel = new UserModel(db);
             const { userId, isbn } = req.params;
             const { score, review } = req.body;
 
@@ -140,6 +144,7 @@ class UserController {
     // GET /api/users/:userId/ratings
     async getUserRatings(req, res) {
         try {
+            const userModel = new UserModel(db);
             const limit = parseInt(req.query.limit) || 10;
             const ratings = await userModel.getUserRatings(req.params.userId, limit);
             

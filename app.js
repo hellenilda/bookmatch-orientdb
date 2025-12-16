@@ -17,6 +17,9 @@ app.use(express.urlencoded({ extended: true }));
 const db = require('./config/database');
 db.connect().then(() => {
     console.log('📚 API conectada ao OrientDB!');
+}).catch(err => {
+    console.error('Falha ao conectar:', err);
+    process.exit(1);
 });
 
 // Rotas
@@ -27,7 +30,7 @@ app.use('/api/users', require('./routes/userRoutes'));
 app.get('/health', (req, res) => {
     res.json({
         status: 'healthy',
-        database: db.db ? 'connected' : 'disconnected',
+        database: db.dbName ? 'connected' : 'disconnected',
         timestamp: new Date().toISOString()
     });
 });

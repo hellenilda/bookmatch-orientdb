@@ -3,71 +3,31 @@ class BookModel {
         this.db = db;
     }
 
-    // Novo livro com arestas para gêneros
+    // CREATE: Criar novo livro (genres como array simples)
     async create(bookData) {
-        const session = await this.db.session();
-        
         try {
-            // 1. Criar vértice do livro (transação aberta)
-            await session.begin();
-            
-            const book = await session.command(
-                `CREATE VERTEX Book SET 
-                 isbn = :isbn, 
-                 title = :title, 
-                 author = :author,
-                 description = :description,
-                 pageCount = :pageCount,
-                 publishedDate = :publishedDate`,
-                {
-                    params: bookData
-                }
-            ).one();
+            const book = await this.db.createVertex('Book', {
+                isbn: bookData.isbn,
+                title: bookData.title,
+                author: bookData.author,
+                description: bookData.description || '',
+                pageCount: bookData.pageCount || 0,
+                publishedDate: bookData.publishedDate || null,
+                genres: bookData.genres || [],  // Array simples
+                createdAt: new Date().toISOString()
+            });
 
-            // 2. Criar arestas para cada gênero
-            for (const genreName of bookData.genres || []) {
-                // Buscar ou criar vértice de gênero
-                let genre = await session.query(
-                    `SELECT FROM Genre WHERE name = :name`,
-                    { params: { name: genreName } }
-                ).one().catch(() => null);
-
-                if (!genre) {
-                    genre = await session.command(
-                        'CREATE VERTEX Genre SET name = :name',
-                        { params: { name: genreName } }
-                    ).one();
-                }
-
-                // Criar aresta BELONGS_TO
-                await session.command(
-                    `CREATE EDGE BELONGS_TO 
-                     FROM :bookId TO :genreId 
-                     SET strength = 'primary'`,
-                    {
-                        params: {
-                            bookId: book['@rid'],
-                            genreId: genre['@rid']
-                        }
-                    }
-                ).one();
-            }
-
-            await session.commit();
             return { success: true, data: book };
-            
         } catch (error) {
-            await session.rollback();
+            console.error('Erro ao criar livro:', error.message);
             throw error;
-        } finally {
-            session.close();
         }
     }
 
     // READ: Buscar livro por ISBN
     async findByISBN(isbn) {
-        return await this.db.query(
-            `SELECT 
+        const sql = `
+            SELECT 
                 @rid as id,
                 isbn,
                 title,
@@ -75,148 +35,131 @@ class BookModel {
                 description,
                 pageCount,
                 publishedDate,
-                out('BELONGS_TO').name as genres,
+                genres,
                 in('RATED').size() as ratingCount,
                 in('RATED').score as allRatings
-             FROM Book 
-             WHERE isbn = :isbn`,
-            {
-                params: { isbn },
-                fetchPlan: 'genres:2' // Trazer gêneros relacionados
-            }
-        ).one();
+            FROM Book 
+            WHERE isbn = :isbn
+        `;
+        
+        return await this.db.queryOne(sql, { isbn });
     }
 
-    // UPDATE: Atualizar informações do livro
+    // READ: Listar todos os livros
+    async findAll(filters = {}) {
+        let sql = 'SELECT FROM Book WHERE 1=1';
+        const params = {};
+        
+        if (filters.genre) {
+            sql += ` AND :genre IN genres`;
+            params.genre = filters.genre;
+        }
+        
+        if (filters.author) {
+            sql += ` AND author LIKE :author`;
+            params.author = `%${filters.author}%`;
+        }
+        
+        sql += ' ORDER BY title';
+        
+        if (filters.limit) {
+            sql += ` LIMIT ${parseInt(filters.limit)}`;
+        }
+        
+        return await this.db.query(sql, params);
+    }
+
+    // UPDATE: Atualizar livro
     async update(isbn, updateData) {
-        const session = await this.db.session();
-        
         try {
-            await session.begin();
+            const updates = { ...updateData, updatedAt: new Date().toISOString() };
+            const keys = Object.keys(updates);
+            const setClause = keys.map(k => `${k} = :${k}`).join(', ');
             
-            // Atualizar propriedades do livro
-            const result = await session.command(
-                `UPDATE Book MERGE :updateData 
-                 WHERE isbn = :isbn
-                 RETURN AFTER @rid, isbn, title`,
-                {
-                    params: {
-                        isbn,
-                        updateData: {
-                            ...updateData,
-                            updatedAt: new Date().toISOString()
-                        }
-                    }
-                }
-            ).one();
-
-            // Se houver novos gêneros, atualizar relações
-            if (updateData.genres) {
-                await this.updateGenres(session, result['@rid'], updateData.genres);
-            }
-
-            await session.commit();
-            return { success: true, data: result };
+            const sql = `UPDATE Book SET ${setClause} WHERE isbn = :isbn RETURN AFTER`;
+            const params = { ...updates, isbn };
             
+            const result = await this.db.query(sql, params);
+            return { success: true, data: result[0] };
         } catch (error) {
-            await session.rollback();
+            console.error('Erro ao atualizar livro:', error.message);
             throw error;
-        } finally {
-            session.close();
         }
     }
 
-    // DELETE: Remover livro (e suas relações)
+    // DELETE: Remover livro
     async delete(isbn) {
-        const session = await this.db.session();
-        
         try {
-            await session.begin();
+            // Buscar o livro
+            const book = await this.findByISBN(isbn);
             
-            // Encontrar o livro
-            const book = await session.query(
-                'SELECT FROM Book WHERE isbn = :isbn',
-                { params: { isbn } }
-            ).one();
-
             if (!book) {
-                throw new Error('Livro não encontrado');
+                return { success: false, error: 'Livro não encontrado' };
             }
 
-            // Deletar todas as arestas conectadas
-            await session.command(
-                `DELETE EDGE RATED, BELONGS_TO, SIMILAR_TO
-                 WHERE out = :bookId OR in = :bookId`,
-                { params: { bookId: book['@rid'] } }
+            // Deletar arestas conectadas
+            await this.db.query(
+                `DELETE EDGE RATED WHERE out = :rid OR in = :rid`,
+                { rid: book.id }
             );
-
-            // Deletar o vértice do livro
-            await session.command(
-                'DELETE VERTEX Book WHERE @rid = :bookId',
-                { params: { bookId: book['@rid'] } }
-            );
-
-            await session.commit();
-            return { success: true, message: 'Livro removido com sucesso' };
             
+            await this.db.query(
+                `DELETE EDGE SIMILAR_TO WHERE out = :rid OR in = :rid`,
+                { rid: book.id }
+            );
+
+            // Deletar o vértice
+            await this.db.query('DELETE VERTEX :rid', { rid: book.id });
+            
+            return { success: true, message: 'Livro deletado com sucesso' };
         } catch (error) {
-            await session.rollback();
+            console.error('Erro ao deletar livro:', error.message);
             throw error;
-        } finally {
-            session.close();
         }
     }
 
-    // Método auxiliar para atualizar gêneros
-    async updateGenres(session, bookId, newGenres) {
-        // Remover relações antigas
-        await session.command(
-            'DELETE EDGE BELONGS_TO WHERE out = :bookId',
-            { params: { bookId } }
-        );
-
-        // Criar novas relações
-        for (const genreName of newGenres) {
-            let genre = await session.query(
-                'SELECT FROM Genre WHERE name = :name',
-                { params: { name: genreName } }
-            ).one().catch(() => null);
-
-            if (!genre) {
-                genre = await session.command(
-                    'CREATE VERTEX Genre SET name = :name',
-                    { params: { name: genreName } }
-                ).one();
-            }
-
-            await session.command(
-                `CREATE EDGE BELONGS_TO FROM :bookId TO :genreId`,
-                { params: { bookId, genreId: genre['@rid'] } }
-            ).one();
-        }
-    }
-
-    // CONSULTA AVANÇADA: Buscar livros similares (usando grafo)
+    // Buscar livros similares (baseado nos mesmos gêneros)
     async findSimilarBooks(isbn, limit = 5) {
-        return await this.db.query(
-            `SELECT 
-                expand(books)
-             FROM (
-               LET targetBook = (SELECT FROM Book WHERE isbn = :isbn),
-               targetGenres = (SELECT out('BELONGS_TO') FROM $targetBook),
-               similarBooks = (
-                 SELECT FROM Book 
-                 WHERE isbn != :isbn
-                 AND out('BELONGS_TO') IN $targetGenres
-                 AND @rid NOT IN (SELECT in FROM SIMILAR_TO WHERE out = $targetBook.@rid)
-               )
-               SELECT $similarBooks as books
-             )`,
-            {
-                params: { isbn },
-                limit
+        const sql = `
+            SELECT 
+                @rid as id,
+                isbn,
+                title,
+                author,
+                genres,
+                in('RATED').size() as ratingCount
+            FROM (
+                SELECT FROM Book 
+                WHERE isbn != :isbn
+                AND genres CONTAINSANY (SELECT genres FROM Book WHERE isbn = :isbn)[0].genres
+            )
+            ORDER BY ratingCount DESC
+            LIMIT :limit
+        `;
+        
+        return await this.db.query(sql, { isbn, limit });
+    }
+
+    // Criar relação de similaridade entre livros
+    async createSimilarity(isbn1, isbn2, score = 0.8) {
+        try {
+            const book1 = await this.findByISBN(isbn1);
+            const book2 = await this.findByISBN(isbn2);
+            
+            if (!book1 || !book2) {
+                return { success: false, error: 'Um dos livros não foi encontrado' };
             }
-        ).all();
+
+            await this.db.createEdge('SIMILAR_TO', book1.id, book2.id, {
+                similarity: score,
+                createdAt: new Date().toISOString()
+            });
+
+            return { success: true, message: 'Similaridade criada' };
+        } catch (error) {
+            console.error('Erro ao criar similaridade:', error.message);
+            throw error;
+        }
     }
 }
 

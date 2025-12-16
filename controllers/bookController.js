@@ -1,12 +1,11 @@
 const BookModel = require('../models/BookModel');
 const db = require('../config/database');
 
-const bookModel = new BookModel(db.db);
-
 class BookController {
     // POST /api/books
     async createBook(req, res) {
         try {
+            const bookModel = new BookModel(db);
             const bookData = {
                 isbn: req.body.isbn,
                 title: req.body.title,
@@ -14,7 +13,7 @@ class BookController {
                 description: req.body.description || '',
                 pageCount: req.body.pageCount || 0,
                 publishedDate: req.body.publishedDate || null,
-                genres: req.body.genres || []
+                genres: req.body.genres || []  // Array simples
             };
 
             // Validação básica
@@ -40,6 +39,7 @@ class BookController {
     // GET /api/books/:isbn
     async getBook(req, res) {
         try {
+            const bookModel = new BookModel(db);
             const book = await bookModel.findByISBN(req.params.isbn);
             
             if (!book) {
@@ -86,8 +86,9 @@ class BookController {
             params.offset = parseInt(offset);
             params.limit = parseInt(limit);
             
-            const books = await db.db.query(query, { params }).all();
-            const total = await db.db.query('SELECT COUNT(*) FROM Book').scalar();
+            const books = await db.query(query, params);
+            const countResult = await db.query('SELECT COUNT(*) as count FROM Book');
+            const total = countResult[0]?.count || 0;
             
             res.json({
                 success: true,
@@ -109,6 +110,7 @@ class BookController {
     // PUT /api/books/:isbn
     async updateBook(req, res) {
         try {
+            const bookModel = new BookModel(db);
             const result = await bookModel.update(req.params.isbn, req.body);
             res.json(result);
         } catch (error) {
@@ -123,6 +125,7 @@ class BookController {
     // DELETE /api/books/:isbn
     async deleteBook(req, res) {
         try {
+            const bookModel = new BookModel(db);
             const result = await bookModel.delete(req.params.isbn);
             res.json(result);
         } catch (error) {
@@ -137,6 +140,7 @@ class BookController {
     // GET /api/books/:isbn/similar
     async getSimilarBooks(req, res) {
         try {
+            const bookModel = new BookModel(db);
             const limit = parseInt(req.query.limit) || 5;
             const similarBooks = await bookModel.findSimilarBooks(req.params.isbn, limit);
             
