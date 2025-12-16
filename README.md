@@ -1,6 +1,6 @@
 # BookMatch
 
-Sistema de recomendação de leitura utilizando OrientDB (banco de dados NoSQL multi-modelo).
+[Sistema de recomendação de leitura utilizando OrientDB](https://www.canva.com/design/DAG7rdCecn8/OxQTgWaSq1qL24kx3FEMUA/edit?utm_content=DAG7rdCecn8&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton) (banco de dados NoSQL multi-modelo).
 
 ---
 
