@@ -3,7 +3,7 @@ class BookModel {
         this.db = db;
     }
 
-    // CREATE: Criar novo livro (genres como array simples)
+    // CREATE | cria novo livro (genres é um array simples)
     async create(bookData) {
         try {
             const book = await this.db.createVertex('Book', {
@@ -13,7 +13,7 @@ class BookModel {
                 description: bookData.description || '',
                 pageCount: bookData.pageCount || 0,
                 publishedDate: bookData.publishedDate || null,
-                genres: bookData.genres || [],  // Array simples
+                genres: bookData.genres || [],
                 createdAt: new Date().toISOString()
             });
 
@@ -24,7 +24,7 @@ class BookModel {
         }
     }
 
-    // READ: Buscar livro por ISBN
+    // READ | busca livro por ISBN
     async findByISBN(isbn) {
         const sql = `
             SELECT 
@@ -45,7 +45,7 @@ class BookModel {
         return await this.db.queryOne(sql, { isbn });
     }
 
-    // READ: Listar todos os livros
+    // READ | lista todos os livros
     async findAll(filters = {}) {
         let sql = 'SELECT FROM Book WHERE 1=1';
         const params = {};
@@ -69,15 +69,21 @@ class BookModel {
         return await this.db.query(sql, params);
     }
 
-    // UPDATE: Atualizar livro
+    // UPDATE | atualiza livro
     async update(isbn, updateData) {
         try {
+            const book = await this.findByISBN(isbn);
+            
+            if (!book) {
+                return { success: false, message: 'Livro não encontrado' };
+            }
+
             const updates = { ...updateData, updatedAt: new Date().toISOString() };
             const keys = Object.keys(updates);
             const setClause = keys.map(k => `${k} = :${k}`).join(', ');
             
-            const sql = `UPDATE Book SET ${setClause} WHERE isbn = :isbn RETURN AFTER`;
-            const params = { ...updates, isbn };
+            const sql = `UPDATE ${book.id} SET ${setClause} RETURN AFTER`;
+            const params = { ...updates };
             
             const result = await this.db.query(sql, params);
             return { success: true, data: result[0] };
@@ -87,17 +93,17 @@ class BookModel {
         }
     }
 
-    // DELETE: Remover livro
+    // DELETE | remove livro
     async delete(isbn) {
         try {
-            // Buscar o livro
+            // buscar
             const book = await this.findByISBN(isbn);
             
             if (!book) {
                 return { success: false, error: 'Livro não encontrado' };
             }
 
-            // Deletar arestas conectadas
+            // deleta arestas conectadas
             await this.db.query(
                 `DELETE EDGE RATED WHERE out = :rid OR in = :rid`,
                 { rid: book.id }
@@ -108,7 +114,7 @@ class BookModel {
                 { rid: book.id }
             );
 
-            // Deletar o vértice
+            // deleta o vértice
             await this.db.query('DELETE VERTEX :rid', { rid: book.id });
             
             return { success: true, message: 'Livro deletado com sucesso' };
@@ -118,8 +124,15 @@ class BookModel {
         }
     }
 
-    // Buscar livros similares (baseado nos mesmos gêneros)
+    // Busca livros similares (baseado nos mesmos gêneros)
     async findSimilarBooks(isbn, limit = 5) {
+        // busca os gêneros do livro original
+        const originalBook = await this.findByISBN(isbn);
+        
+        if (!originalBook || !originalBook.genres || originalBook.genres.length === 0) {
+            return [];
+        }
+
         const sql = `
             SELECT 
                 @rid as id,
@@ -128,19 +141,17 @@ class BookModel {
                 author,
                 genres,
                 in('RATED').size() as ratingCount
-            FROM (
-                SELECT FROM Book 
-                WHERE isbn != :isbn
-                AND genres CONTAINSANY (SELECT genres FROM Book WHERE isbn = :isbn)[0].genres
-            )
+            FROM Book
+            WHERE isbn != :isbn
+            AND genres CONTAINSANY :genres
             ORDER BY ratingCount DESC
-            LIMIT :limit
+            LIMIT ${limit}
         `;
         
-        return await this.db.query(sql, { isbn, limit });
+        return await this.db.query(sql, { isbn, genres: originalBook.genres });
     }
 
-    // Criar relação de similaridade entre livros
+    // relação de similaridade entre livros
     async createSimilarity(isbn1, isbn2, score = 0.8) {
         try {
             const book1 = await this.findByISBN(isbn1);

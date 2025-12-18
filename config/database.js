@@ -24,11 +24,10 @@ class OrientDBHttpClient {
 
     async connect() {
         try {
-            // Verificar se o servidor está rodando
             await this.client.get('/server');
-            console.log('✅ OrientDB está rodando');
+            console.log('✅ OrientDB rodando');
 
-            // Verificar/criar banco de dados
+            // Verificar ou criar bd
             try {
                 await this.client.get(`/database/${this.dbName}`);
                 console.log(`✅ Conectado ao banco '${this.dbName}'`);
@@ -56,7 +55,7 @@ class OrientDBHttpClient {
         }
     }
 
-    // Executar comando SQL
+    // Executar SQL
     async command(sql, params = {}) {
         try {
             const response = await this.client.post(
@@ -73,12 +72,12 @@ class OrientDBHttpClient {
         }
     }
 
-    // Executar query (alias para command)
+    // Executar query
     async query(sql, params = {}) {
         return this.command(sql, params);
     }
 
-    // Buscar um único registro
+    // Buscar um registro
     async queryOne(sql, params = {}) {
         const results = await this.query(sql, params);
         return results.length > 0 ? results[0] : null;
@@ -113,7 +112,7 @@ class OrientDBHttpClient {
 
     async setupSchema() {
         try {
-            // Criar classes de vértices
+            // classes de vértices
             const classes = ['User', 'Book'];
             
             for (const className of classes) {
@@ -124,13 +123,13 @@ class OrientDBHttpClient {
                 }
             }
             
-            // Criar classes de arestas
+            // classes de arestas
             const edges = ['RATED', 'SIMILAR_TO'];
             for (const edgeName of edges) {
                 try {
                     await this.command(`CREATE CLASS ${edgeName} IF NOT EXISTS EXTENDS E`);
                 } catch (error) {
-                    // Ignorar se já existe
+                    // ignorar caso já exista
                 }
             }
             
@@ -138,22 +137,22 @@ class OrientDBHttpClient {
             try {
                 await this.command('CREATE INDEX User.userId IF NOT EXISTS UNIQUE');
             } catch (error) {
-                // Ignorar se já existe
+                // ignorar caso já exista
             }
             
             try {
                 await this.command('CREATE INDEX Book.isbn IF NOT EXISTS UNIQUE');
             } catch (error) {
-                // Ignorar se já existe
+                // ignorar caso já exista
             }
             
-            console.log('✅ Schema configurado com sucesso!');
+            console.log('✅ Schema configurado');
         } catch (error) {
-            console.error('❌ Erro ao configurar schema:', error.message);
+            console.error('❌ Erro na configuração do schema:', error.message);
         }
     }
 
-    // Helper para formatar RID
+    // Helper pra formatar RID
     formatRid(rid) {
         if (!rid) return null;
         if (typeof rid === 'string') return rid;

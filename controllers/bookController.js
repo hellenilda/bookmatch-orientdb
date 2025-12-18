@@ -73,13 +73,13 @@ class BookController {
             const params = {};
             
             if (genre) {
-                query += ' AND out("BELONGS_TO").name CONTAINS :genre';
+                query += ' AND genres CONTAINS :genre';
                 params.genre = genre;
             }
             
             if (author) {
-                query += ' AND author.toLowerCase() LIKE :author';
-                params.author = `%${author.toLowerCase()}%`;
+                query += ' AND author LIKE :author';
+                params.author = `%${author}%`;
             }
             
             query += ' ORDER BY title SKIP :offset LIMIT :limit';

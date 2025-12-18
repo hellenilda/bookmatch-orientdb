@@ -141,6 +141,24 @@ class UserController {
         }
     }
 
+    // DELETE /api/users/:userId/rate/:isbn
+    async deleteRating(req, res) {
+        try {
+            const userModel = new UserModel(db);
+            const { userId, isbn } = req.params;
+
+            const result = await userModel.deleteRating(userId, isbn);
+            res.json(result);
+            
+        } catch (error) {
+            console.error('Erro ao deletar avaliação:', error);
+            res.status(500).json({
+                success: false,
+                error: error.message
+            });
+        }
+    }
+
     // GET /api/users/:userId/ratings
     async getUserRatings(req, res) {
         try {

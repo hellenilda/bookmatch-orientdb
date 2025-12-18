@@ -3,7 +3,7 @@ class UserModel {
         this.db = db;
     }
 
-    // CREATE: Criar novo usuário
+    // CREATE | cria novo usuário
     async create(userData) {
         try {
             const user = await this.db.createVertex('User', {
@@ -20,7 +20,7 @@ class UserModel {
         }
     }
 
-    // READ: Buscar usuário por userId
+    // READ | busca usuário por userId
     async findByUserId(userId) {
         const sql = `
             SELECT 
@@ -37,7 +37,7 @@ class UserModel {
         return await this.db.queryOne(sql, { userId });
     }
 
-    // READ: Listar todos os usuários
+    // READ | lista todos os usuários
     async findAll(page = 1, limit = 10) {
         const offset = (page - 1) * limit;
         
@@ -71,15 +71,21 @@ class UserModel {
         };
     }
 
-    // UPDATE: Atualizar usuário
+    // UPDATE | atualiza usuário
     async update(userId, updateData) {
         try {
+            const user = await this.findByUserId(userId);
+            
+            if (!user) {
+                return { success: false, message: 'Usuário não encontrado' };
+            }
+
             const updates = { ...updateData, updatedAt: new Date().toISOString() };
             const keys = Object.keys(updates);
             const setClause = keys.map(k => `${k} = :${k}`).join(', ');
             
-            const sql = `UPDATE User SET ${setClause} WHERE userId = :userId RETURN AFTER`;
-            const params = { ...updates, userId };
+            const sql = `UPDATE ${user.id} SET ${setClause} RETURN AFTER`;
+            const params = { ...updates };
             
             const result = await this.db.query(sql, params);
             return { success: true, data: result[0] };
@@ -89,7 +95,7 @@ class UserModel {
         }
     }
 
-    // DELETE: Remover usuário
+    // DELETE | remove usuário
     async delete(userId) {
         try {
             const user = await this.findByUserId(userId);
@@ -98,13 +104,13 @@ class UserModel {
                 return { success: false, error: 'Usuário não encontrado' };
             }
 
-            // Deletar arestas de ratings
+            // deleta arestas de avaliações/ratings
             await this.db.query(
                 `DELETE EDGE RATED WHERE out = :rid`,
                 { rid: user.id }
             );
 
-            // Deletar vértice do usuário
+            // deleta o vértice do usuário
             await this.db.query('DELETE VERTEX :rid', { rid: user.id });
             
             return { success: true, message: 'Usuário deletado com sucesso' };
@@ -114,10 +120,10 @@ class UserModel {
         }
     }
 
-    // Avaliar um livro (criar/atualizar aresta RATED)
+    // avaliando um livro (cria/atualiza aresta RATED)
     async rateBook(userId, isbn, score, review = '') {
         try {
-            // Buscar usuário e livro
+            // buscar usuário e livro
             const user = await this.findByUserId(userId);
             const bookSql = 'SELECT @rid as id FROM Book WHERE isbn = :isbn';
             const book = await this.db.queryOne(bookSql, { isbn });
@@ -130,14 +136,14 @@ class UserModel {
                 return { success: false, error: 'Livro não encontrado' };
             }
 
-            // Verificar se já existe avaliação
+            // verificar se a avaliação já existe
             const existingRating = await this.db.queryOne(
                 `SELECT FROM RATED WHERE out = :userId AND in = :bookId`,
                 { userId: user.id, bookId: book.id }
             );
 
             if (existingRating) {
-                // Atualizar avaliação existente
+                // atualiza avaliação existente
                 await this.db.query(
                     `UPDATE RATED SET score = :score, review = :review, updatedAt = :updatedAt 
                      WHERE out = :userId AND in = :bookId`,
@@ -156,7 +162,7 @@ class UserModel {
                     data: { userId, isbn, score, review }
                 };
             } else {
-                // Criar nova avaliação
+                // cria nova avaliação
                 await this.db.createEdge('RATED', user.id, book.id, {
                     score,
                     review,
@@ -175,10 +181,11 @@ class UserModel {
         }
     }
 
-    // Buscar avaliações de um usuário
+    // busca avaliações de um usuário
     async getUserRatings(userId, limit = 10) {
         const sql = `
             SELECT 
+                out.userId as userId,
                 in.isbn as isbn,
                 in.title as title,
                 in.author as author,
@@ -196,7 +203,38 @@ class UserModel {
         return await this.db.query(sql, { userId });
     }
 
-    // Buscar livros favoritos (rating >= 4)
+    // deleta avaliação de um livro
+    async deleteRating(userId, isbn) {
+        try {
+            // buscar o usuário e o livro
+            const user = await this.findByUserId(userId);
+            if (!user) {
+                return { success: false, message: 'Usuário não encontrado' };
+            }
+
+            const bookSql = `SELECT @rid as id FROM Book WHERE isbn = :isbn`;
+            const bookResult = await this.db.query(bookSql, { isbn });
+            
+            if (!bookResult || bookResult.length === 0) {
+                return { success: false, message: 'Livro não encontrado' };
+            }
+
+            const book = bookResult[0];
+
+            // deleta a aresta RATED
+            await this.db.deleteEdge('RATED', user.id, book.id);
+
+            return { 
+                success: true, 
+                message: 'Avaliação removida com sucesso' 
+            };
+        } catch (error) {
+            console.error('Erro ao deletar avaliação:', error.message);
+            throw error;
+        }
+    }
+
+    // busca livros favoritos (rating >= 4)
     async getUserFavorites(userId) {
         const sql = `
             SELECT 

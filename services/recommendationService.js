@@ -75,10 +75,8 @@ class RecommendationService {
                  FROM $candidateBooks
                  ORDER BY finalScore DESC
                  LIMIT :limit`,
-                {
-                    params: { userId, limit }
-                }
-            ).all();
+                { userId, limit }
+            );
 
             return {
                 success: true,
@@ -92,48 +90,45 @@ class RecommendationService {
         }
     }
 
-    // Método mais simples para demonstração
     async simpleRecommendations(userId, limit = 5) {
-        return await db.query(
-            `SELECT 
-                title,
-                author,
-                isbn,
-                in('RATED').size() as ratingCount
-             FROM (
-               MATCH {
-                 class: User,
-                 where: (userId = :userId),
-                 as: user
-               }.out('RATED') {
-                 where: (score >= 4),
-                 as: likedBook
-               }.out('BELONGS_TO') {
-                 as: genre
-               }.in('BELONGS_TO') {
-                 class: Book,
-                 where: (in('RATED').out().userId != :userId),
-                 as: recommendedBook
-               }
-               RETURN recommendedBook
-             )
-             GROUP BY recommendedBook
-             ORDER BY ratingCount DESC
-             LIMIT :limit`,
-            {
-                params: { userId, limit }
-            }
-        ).all();
+        try {
+            // livros bem avaliados por usuários com gostos similares
+            const sql = `
+                SELECT 
+                    book.isbn as isbn,
+                    book.title as title,
+                    book.author as author,
+                    book.genres as genres,
+                    COUNT(*) as score
+                FROM (
+                    SELECT expand(in) as book
+                    FROM RATED
+                    WHERE out.userId != :userId
+                    AND score >= 4
+                    AND in.isbn NOT IN (
+                        SELECT in.isbn FROM RATED WHERE out.userId = :userId
+                    )
+                )
+                GROUP BY book
+                ORDER BY score DESC
+                LIMIT ${limit}
+            `;
+            
+            return await db.query(sql, { userId });
+        } catch (error) {
+            console.error('Erro ao gerar recomendações:', error);
+            return [];
+        }
     }
 
     // Atualizar similaridade entre livros (batch processing)
     async updateBookSimilarities() {
-        console.log('🔄 Atualizando similaridades entre livros...');
+        console.log('Atualizando similaridades entre livros...');
         
-        // 1. Limpar arestas antigas
+        // 1. limpar arestas antigas
         await db.db.command('DELETE EDGE SIMILAR_TO').all();
         
-        // 2. Para cada livro, encontrar 5 similares
+        // 2. para cada livro, encontrar 5 similares
         const allBooks = await db.query('SELECT @rid, isbn FROM Book').all();
         
         for (const book of allBooks) {
@@ -186,7 +181,7 @@ class RecommendationService {
             }
         }
         
-        console.log(`✅ Similaridades atualizadas para ${allBooks.length} livros`);
+        console.log(`Similaridades atualizadas para ${allBooks.length} livros`);
         return { processed: allBooks.length };
     }
 
