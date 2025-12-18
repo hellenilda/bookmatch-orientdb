@@ -4,83 +4,110 @@ class RecommendationService {
     // Gerar recomendações baseadas no grafo
     async generateRecommendations(userId, limit = 10) {
         try {
-            // Consulta complexa no grafo
-            const recommendations = await db.query(
-                `LET $userId = :userId
-                 
-                 -- 1. Encontrar o usuário
-                 LET targetUser = (
-                   SELECT FROM User WHERE userId = $userId
-                 )
-                 
-                 -- 2. Livros que o usuário já avaliou bem (≥ 4 estrelas)
-                 LET likedBooks = (
-                   SELECT expand(out('RATED')) 
-                   FROM $targetUser 
-                   WHERE score >= 4
-                 )
-                 
-                 -- 3. Gêneros desses livros (com peso)
-                 LET likedGenres = (
-                   SELECT 
-                     name,
-                     count(*) as weight,
-                     out('BELONGS_TO').size() as bookCount
-                   FROM (
-                     SELECT expand(out('BELONGS_TO')) 
-                     FROM $likedBooks
-                   )
-                   GROUP BY name
-                   ORDER BY weight DESC
-                   LIMIT 5
-                 )
-                 
-                 -- 4. Buscar livros NÃO avaliados do mesmo gênero
-                 LET candidateBooks = (
-                   SELECT 
-                     @rid as id,
-                     isbn,
-                     title,
-                     author,
-                     in('RATED').size() as popularity,
-                     in('RATED').avg(score) as avgRating,
-                     $genreWeight as genreWeight
-                   FROM Book
-                   LET $genreWeight = (
-                     SELECT sum(weight) FROM $likedGenres 
-                     WHERE name IN out('BELONGS_TO').name
-                   )
-                   WHERE 
-                     -- Não avaliado pelo usuário
-                     @rid NOT IN $likedBooks.@rid
-                     AND 
-                     -- Tem pelo menos um gênero em comum
-                     $genreWeight > 0
-                   ORDER BY 
-                     (genreWeight * 0.6 + popularity * 0.3 + avgRating * 0.1) DESC
-                   LIMIT :limit * 2  -- Buscar mais para filtrar depois
-                 )
-                 
-                 -- 5. Filtrar e ordenar resultados finais
-                 SELECT 
-                   id,
-                   isbn,
-                   title,
-                   author,
-                   out('BELONGS_TO').name as genres,
-                   popularity,
-                   avgRating,
-                   genreWeight,
-                   (genreWeight * 0.6 + popularity * 0.3 + avgRating * 0.1) as finalScore
-                 FROM $candidateBooks
-                 ORDER BY finalScore DESC
-                 LIMIT :limit`,
-                { userId, limit }
+            // Buscar gêneros dos livros que o usuário avaliou bem (score >= 4)
+            const userRatings = await db.query(
+                `SELECT in.genres as genres 
+                 FROM RATED 
+                 WHERE out.userId = :userId AND score >= 4`,
+                { userId }
             );
+
+            // Se o usuário não tem avaliações, retornar livros mais populares
+            if (!userRatings || userRatings.length === 0) {
+                const popularBooks = await db.query(
+                    `SELECT 
+                        @rid as id,
+                        isbn,
+                        title,
+                        author,
+                        genres,
+                        in('RATED').size() as popularity
+                     FROM Book
+                     ORDER BY popularity DESC
+                     LIMIT ${limit}`
+                );
+                
+                return {
+                    success: true,
+                    data: popularBooks,
+                    generatedAt: new Date().toISOString()
+                };
+            }
+
+            // Coletar todos os gêneros favoritos do usuário
+            const favoriteGenres = [];
+            userRatings.forEach(rating => {
+                if (rating.genres && Array.isArray(rating.genres)) {
+                    favoriteGenres.push(...rating.genres);
+                }
+            });
+
+            // Se não há gêneros, retornar livros populares
+            if (favoriteGenres.length === 0) {
+                const popularBooks = await db.query(
+                    `SELECT 
+                        @rid as id,
+                        isbn,
+                        title,
+                        author,
+                        genres,
+                        in('RATED').size() as popularity
+                     FROM Book
+                     ORDER BY popularity DESC
+                     LIMIT ${limit}`
+                );
+                
+                return {
+                    success: true,
+                    data: popularBooks,
+                    generatedAt: new Date().toISOString()
+                };
+            }
+
+            // Buscar livros NÃO avaliados pelo usuário, dos gêneros favoritos
+            const booksAlreadyRated = await db.query(
+                `SELECT in.isbn as isbn FROM RATED WHERE out.userId = :userId`,
+                { userId }
+            );
+            
+            const ratedIsbns = booksAlreadyRated.map(r => r.isbn);
+
+            // Buscar recomendações
+            const allBooks = await db.query(
+                `SELECT 
+                    @rid as id,
+                    isbn,
+                    title,
+                    author,
+                    genres,
+                    in('RATED').size() as popularity
+                 FROM Book`
+            );
+
+            // Filtrar e pontuar os livros
+            const scoredBooks = allBooks
+                .filter(book => !ratedIsbns.includes(book.isbn))
+                .map(book => {
+                    let score = 0;
+                    
+                    // Pontuar baseado em gêneros em comum
+                    if (book.genres && Array.isArray(book.genres)) {
+                        const commonGenres = book.genres.filter(g => favoriteGenres.includes(g));
+                        score += commonGenres.length * 3;
+                    }
+                    
+                    // Adicionar popularidade
+                    score += (book.popularity || 0) * 0.5;
+                    
+                    return { ...book, score };
+                })
+                .filter(book => book.score > 0)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, limit);
 
             return {
                 success: true,
-                data: recommendations,
+                data: scoredBooks,
                 generatedAt: new Date().toISOString()
             };
 
